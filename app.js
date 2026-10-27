@@ -997,7 +997,8 @@ elements.backupButton.addEventListener('click', chooseBackupFolder)
 elements.enableReminders.addEventListener('click', enableReminders)
 window.addEventListener('online', () => void pullTasks())
 
-if (pushSupported()) {
+// O service worker recebe os avisos e mantém a agenda sempre na versão mais nova (e abrindo sem internet).
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
   void navigator.serviceWorker.register('sw.js')
   // Com a agenda aberta, o aviso também aparece aqui dentro, com som.
   navigator.serviceWorker.addEventListener('message', (event) => {
