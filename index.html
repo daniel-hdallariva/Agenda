@@ -7,6 +7,7 @@
     <meta name="description" content="Uma agenda pessoal, simples e privada." />
     <title>Agenda pessoal</title>
     <link rel="stylesheet" href="styles.css" />
+    <script src="vendor/supabase-2.117.3.js" defer></script>
     <script src="app.js" defer></script>
   </head>
   <body>
@@ -38,11 +39,12 @@
         </nav>
 
         <div class="sidebar-bottom">
+          <button class="backup-button" type="button" id="backup-button" hidden>Escolher pasta do backup</button>
           <div class="privacy-note">
             <span class="privacy-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v2"></path></svg>
             </span>
-            <span>Seus dados ficam<br />neste dispositivo.</span>
+            <span>Sincronizado com<br />a sua conta.</span>
           </div>
           <div class="sidebar-signature">UM PASSO DE CADA VEZ</div>
         </div>
@@ -51,7 +53,10 @@
       <main class="main-panel">
         <header class="topbar">
           <div class="breadcrumb"><span>Meu espaço</span><span class="breadcrumb-divider">/</span><span id="breadcrumb-view">Hoje</span></div>
-          <div class="topbar-date" id="topbar-date"></div>
+          <div class="topbar-right">
+            <div class="topbar-date" id="topbar-date"></div>
+            <button class="sign-out" type="button" id="sign-out" hidden>Sair</button>
+          </div>
         </header>
 
         <div class="content-wrap">
@@ -116,7 +121,7 @@
             </div>
 
             <div class="list-footer" id="list-footer">
-              <span><span class="footer-dot"></span><span id="footer-status">Tudo salvo neste dispositivo</span></span>
+              <span><span class="footer-dot"></span><span id="footer-status">Conectando à sua conta...</span></span>
               <button class="clear-completed" type="button" id="clear-completed" hidden>Limpar concluídas</button>
             </div>
           </section>
@@ -152,6 +157,19 @@
         <div class="dialog-actions"><button class="text-button" type="button" id="delete-task">Excluir tarefa</button><button class="save-button" type="submit">Salvar alterações <span aria-hidden="true">→</span></button></div>
       </form>
     </dialog>
+
+    <section class="auth-screen" id="auth-screen" aria-labelledby="auth-title" hidden>
+      <form class="auth-card" id="auth-form">
+        <div class="dialog-topline"><span>SUA AGENDA</span></div>
+        <h2 id="auth-title">Entre na sua conta</h2>
+        <label class="field-label" for="auth-email">E-mail</label>
+        <input class="dialog-input" id="auth-email" name="email" type="email" autocomplete="username" required />
+        <label class="field-label" for="auth-password">Senha</label>
+        <input class="dialog-input" id="auth-password" name="password" type="password" autocomplete="current-password" required />
+        <p class="auth-error" id="auth-error" role="alert" hidden></p>
+        <div class="dialog-actions"><span></span><button class="save-button" type="submit" id="auth-submit">Entrar <span aria-hidden="true">→</span></button></div>
+      </form>
+    </section>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </body>

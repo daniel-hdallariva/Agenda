@@ -1,4 +1,13 @@
 const STORAGE_KEY = 'agenda-pessoal.tasks.v1'
+const PENDING_KEY = 'agenda-pessoal.pending.v1'
+const MIGRATED_KEY = 'agenda-pessoal.migrated.v1'
+const BACKUP_KEY = 'agenda-pessoal.last-backup.v1'
+const BACKUP_KEEP = 30
+
+// A chave publicável pode ficar no código: sem login, o banco não devolve nenhuma tarefa (RLS).
+const SUPABASE_URL = 'https://vlsktymnxefpzvmofyvl.supabase.co'
+const SUPABASE_KEY = 'sb_publishable_sT1FD9V97a5fHczPxLZnwg_cjM6oeZO'
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
 
 const viewLabels = {
   today: 'Hoje',
@@ -14,6 +23,10 @@ const state = {
   editingId: null,
   toastTimer: null,
   audioContext: null,
+  user: null,
+  pending: loadPending(),
+  syncing: false,
+  changedWhileSyncing: new Set(),
 }
 
 const elements = {
@@ -59,6 +72,14 @@ const elements = {
   deleteTask: document.querySelector('#delete-task'),
   closeDialog: document.querySelector('.dialog-close'),
   toast: document.querySelector('#toast'),
+  authScreen: document.querySelector('#auth-screen'),
+  authForm: document.querySelector('#auth-form'),
+  authEmail: document.querySelector('#auth-email'),
+  authPassword: document.querySelector('#auth-password'),
+  authError: document.querySelector('#auth-error'),
+  authSubmit: document.querySelector('#auth-submit'),
+  signOut: document.querySelector('#sign-out'),
+  backupButton: document.querySelector('#backup-button'),
 }
 
 const dateFormatter = new Intl.DateTimeFormat('pt-BR', { day: 'numeric', month: 'long' })
@@ -72,25 +93,80 @@ function loadTasks() {
     if (!stored) return []
     const parsed = JSON.parse(stored)
     if (!Array.isArray(parsed)) return []
-
-    return parsed.filter((task) => (
-      task && typeof task.id === 'string' && typeof task.title === 'string'
-    )).map((task) => ({
-      id: task.id,
-      title: task.title.slice(0, 120),
-      dueDate: isValidDate(task.dueDate) ? task.dueDate : '',
-      weekdays: Array.isArray(task.weekdays)
-        ? [...new Set(task.weekdays.filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))]
-        : [],
-      time: isValidTime(task.time) ? task.time : '08:00',
-      completedDates: Array.isArray(task.completedDates) ? task.completedDates.filter(isValidDate) : [],
-      notifiedDates: Array.isArray(task.notifiedDates) ? task.notifiedDates.filter(isValidDate) : [],
-      completed: Boolean(task.completed),
-      createdAt: Number.isFinite(task.createdAt) ? task.createdAt : Date.now(),
-    }))
+    return parsed.filter(isTaskLike).map(normalizeTask)
   } catch {
     return []
   }
+}
+
+function isTaskLike(task) {
+  return task && typeof task.id === 'string' && typeof task.title === 'string'
+}
+
+function normalizeTask(task) {
+  return {
+    id: task.id,
+    title: task.title.slice(0, 120),
+    dueDate: isValidDate(task.dueDate) ? task.dueDate : '',
+    weekdays: Array.isArray(task.weekdays)
+      ? [...new Set(task.weekdays.filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))]
+      : [],
+    time: isValidTime(task.time) ? task.time : '08:00',
+    completedDates: Array.isArray(task.completedDates) ? task.completedDates.filter(isValidDate) : [],
+    notifiedDates: Array.isArray(task.notifiedDates) ? task.notifiedDates.filter(isValidDate) : [],
+    completed: Boolean(task.completed),
+    createdAt: Number.isFinite(task.createdAt) ? task.createdAt : Date.now(),
+  }
+}
+
+function taskToRow(task) {
+  return {
+    id: task.id,
+    title: task.title,
+    due_date: task.dueDate || null,
+    weekdays: task.weekdays,
+    reminder_time: isValidTime(task.time) ? task.time : '08:00',
+    completed: task.completed,
+    completed_dates: task.completedDates,
+    notified_dates: task.notifiedDates,
+    created_at: task.createdAt,
+  }
+}
+
+function rowToTask(row) {
+  return normalizeTask({
+    id: row.id,
+    title: row.title,
+    dueDate: row.due_date ?? '',
+    weekdays: row.weekdays,
+    time: row.reminder_time,
+    completed: row.completed,
+    completedDates: row.completed_dates,
+    notifiedDates: row.notified_dates,
+    createdAt: Number(row.created_at),
+  })
+}
+
+function loadPending() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PENDING_KEY) || '{}')
+    return {
+      upserts: Array.isArray(parsed.upserts) ? parsed.upserts : [],
+      deletes: Array.isArray(parsed.deletes) ? parsed.deletes : [],
+    }
+  } catch {
+    return { upserts: [], deletes: [] }
+  }
+}
+
+function savePending() {
+  try {
+    localStorage.setItem(PENDING_KEY, JSON.stringify(state.pending))
+  } catch {}
+}
+
+function hasPending() {
+  return state.pending.upserts.length > 0 || state.pending.deletes.length > 0
 }
 
 function isValidDate(value) {
@@ -106,13 +182,94 @@ function isValidTime(value) {
 function saveTasks() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state.tasks))
-    elements.footerStatus.textContent = 'Tudo salvo neste dispositivo'
     return true
   } catch {
     elements.footerStatus.textContent = 'Não foi possível salvar neste dispositivo'
     showToast('O navegador não conseguiu salvar suas tarefas.')
     return false
   }
+}
+
+// Grava no aparelho e marca o que precisa subir para a conta.
+function persist({ changed = [], removed = [] } = {}) {
+  saveTasks()
+  if (state.syncing) [...changed, ...removed].forEach((id) => state.changedWhileSyncing.add(id))
+  changed.forEach((id) => {
+    if (!state.pending.upserts.includes(id)) state.pending.upserts.push(id)
+  })
+  removed.forEach((id) => {
+    state.pending.upserts = state.pending.upserts.filter((item) => item !== id)
+    if (!state.pending.deletes.includes(id)) state.pending.deletes.push(id)
+  })
+  savePending()
+  void flushSync()
+}
+
+function setSyncStatus(text) {
+  elements.footerStatus.textContent = text
+}
+
+async function flushSync() {
+  if (!state.user || state.syncing || !hasPending()) return !hasPending()
+  state.syncing = true
+  const upsertIds = [...state.pending.upserts]
+  const deleteIds = [...state.pending.deletes]
+  try {
+    const rows = state.tasks.filter((task) => upsertIds.includes(task.id)).map(taskToRow)
+    if (rows.length) {
+      const { error } = await db.from('tasks').upsert(rows)
+      if (error) throw error
+    }
+    if (deleteIds.length) {
+      const { error } = await db.from('tasks').delete().in('id', deleteIds)
+      if (error) throw error
+    }
+    // Só tira da fila o que foi enviado; o que mudou durante o envio continua na fila.
+    state.pending.upserts = state.pending.upserts.filter((id) => !upsertIds.includes(id) || state.changedWhileSyncing.has(id))
+    state.pending.deletes = state.pending.deletes.filter((id) => !deleteIds.includes(id) || state.changedWhileSyncing.has(id))
+    savePending()
+    setSyncStatus('Tudo sincronizado')
+    return true
+  } catch {
+    setSyncStatus('Sem conexão: as alterações sobem quando a internet voltar')
+    return false
+  } finally {
+    state.syncing = false
+    const retry = state.changedWhileSyncing.size > 0
+    state.changedWhileSyncing.clear()
+    if (retry) void flushSync()
+  }
+}
+
+async function pullTasks() {
+  if (!state.user) return false
+  await flushSync()
+  if (hasPending()) return false
+
+  const { data, error } = await db.from('tasks').select('*').order('created_at')
+  if (error) {
+    setSyncStatus('Sem conexão: mostrando a última cópia deste aparelho')
+    return false
+  }
+
+  // Primeiro login: as tarefas que já estavam neste aparelho sobem para a conta.
+  if (!data.length && state.tasks.length && !localStorage.getItem(MIGRATED_KEY)) {
+    state.pending.upserts = state.tasks.map((task) => task.id)
+    savePending()
+    const sent = await flushSync()
+    if (sent) {
+      localStorage.setItem(MIGRATED_KEY, '1')
+      showToast(`${state.tasks.length} ${state.tasks.length === 1 ? 'tarefa trazida' : 'tarefas trazidas'} deste aparelho para a sua conta.`)
+    }
+    return sent
+  }
+
+  localStorage.setItem(MIGRATED_KEY, '1')
+  state.tasks = data.map(rowToTask)
+  saveTasks()
+  setSyncStatus('Tudo sincronizado')
+  if (!elements.editDialog.open) render()
+  return true
 }
 
 function localDateString(date = new Date()) {
@@ -372,7 +529,7 @@ function addTask(title, dueDate, weekdays = [], time = '') {
     return false
   }
 
-  state.tasks.push({
+  const task = {
     id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     title: trimmedTitle.slice(0, 120),
     dueDate: weekdays.length ? '' : (isValidDate(dueDate) ? dueDate : ''),
@@ -382,8 +539,9 @@ function addTask(title, dueDate, weekdays = [], time = '') {
     notifiedDates: [],
     completed: false,
     createdAt: Date.now(),
-  })
-  saveTasks()
+  }
+  state.tasks.push(task)
+  persist({ changed: [task.id] })
   render()
   showToast(weekdays.length ? 'Lembrete semanal adicionado.' : 'Tarefa adicionada à sua lista.')
   if (weekdays.length) prepareReminderAlerts()
@@ -403,7 +561,7 @@ function toggleTask(id) {
   } else {
     task.completed = !task.completed
   }
-  saveTasks()
+  persist({ changed: [task.id] })
   render()
 }
 
@@ -411,7 +569,7 @@ function removeTask(id) {
   const task = state.tasks.find((item) => item.id === id)
   if (!task) return
   state.tasks = state.tasks.filter((item) => item.id !== id)
-  saveTasks()
+  persist({ removed: [id] })
   render()
   showToast('Tarefa excluída.')
 }
@@ -455,7 +613,7 @@ function saveEditedTask(event) {
     task.completedDates = []
     task.notifiedDates = []
   }
-  saveTasks()
+  persist({ changed: [task.id] })
   closeEditDialog()
   render()
   showToast(weekdays.length ? 'Lembrete semanal atualizado.' : 'Alterações salvas.')
@@ -476,12 +634,14 @@ function clearCompletedTasks() {
     task.weekdays.length ? task.completedDates.includes(today) : task.completed
   )).length
   if (!completedCount) return
+  const removed = state.tasks.filter((task) => !task.weekdays.length && task.completed).map((task) => task.id)
+  const changed = state.tasks.filter((task) => task.weekdays.length && task.completedDates.includes(today)).map((task) => task.id)
   state.tasks = state.tasks.filter((task) => {
     if (!task.weekdays.length) return !task.completed
     task.completedDates = task.completedDates.filter((date) => date !== today)
     return true
   })
-  saveTasks()
+  persist({ changed, removed })
   render()
   showToast(`${completedCount} ${completedCount === 1 ? 'tarefa removida' : 'tarefas removidas'}.`)
 }
@@ -534,14 +694,14 @@ function checkMedicationReminders() {
   const today = localDateString(now)
   const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
   const weekday = now.getDay()
-  let changed = false
+  const changed = []
 
   state.tasks.forEach((task) => {
     if (!task.weekdays.length || !task.weekdays.includes(weekday)) return
     if (task.time > currentTime || task.completedDates.includes(today) || task.notifiedDates.includes(today)) return
 
     task.notifiedDates.push(today)
-    changed = true
+    changed.push(task.id)
     playReminderSound()
     showToast(`Hora do lembrete: ${task.title}`)
     if ('Notification' in window && Notification.permission === 'granted') {
@@ -552,7 +712,128 @@ function checkMedicationReminders() {
     }
   })
 
-  if (changed) saveTasks()
+  if (changed.length) persist({ changed })
+}
+
+async function showSignedIn(user) {
+  state.user = user
+  elements.authScreen.hidden = true
+  elements.signOut.hidden = false
+  setSyncStatus('Sincronizando...')
+  const pulled = await pullTasks()
+  if (pulled) void runDailyBackup()
+}
+
+function showSignedOut() {
+  state.user = null
+  elements.signOut.hidden = true
+  elements.authScreen.hidden = false
+  elements.authEmail.focus()
+}
+
+async function signIn(event) {
+  event.preventDefault()
+  elements.authError.hidden = true
+  elements.authSubmit.disabled = true
+  const { data, error } = await db.auth.signInWithPassword({
+    email: elements.authEmail.value.trim(),
+    password: elements.authPassword.value,
+  })
+  elements.authSubmit.disabled = false
+  if (error) {
+    elements.authError.textContent = error.message === 'Invalid login credentials'
+      ? 'E-mail ou senha incorretos.'
+      : 'Não foi possível entrar. Confira a internet e tente de novo.'
+    elements.authError.hidden = false
+    return
+  }
+  elements.authForm.reset()
+  await showSignedIn(data.user)
+}
+
+async function signOut() {
+  if (hasPending() && !(await flushSync())) {
+    showToast('Ainda há alterações sem enviar. Conecte-se à internet antes de sair.')
+    return
+  }
+  await db.auth.signOut()
+  state.tasks = []
+  saveTasks()
+  render()
+  showSignedOut()
+}
+
+// Backup diário: grava uma cópia das tarefas numa pasta do PC (Edge/Chrome no computador).
+function openBackupStore() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('agenda-backup', 1)
+    request.onupgradeneeded = () => request.result.createObjectStore('handles')
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+}
+
+async function backupStore(mode, action) {
+  const store = (await openBackupStore()).transaction('handles', mode).objectStore('handles')
+  return new Promise((resolve, reject) => {
+    const request = action(store)
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+}
+
+function updateBackupButton(folderName) {
+  const last = localStorage.getItem(BACKUP_KEY)
+  elements.backupButton.textContent = folderName
+    ? `Backup em "${folderName}"${last ? ` · último: ${formatTaskDate(last)}` : ''}`
+    : 'Escolher pasta do backup'
+}
+
+async function chooseBackupFolder() {
+  try {
+    const folder = await window.showDirectoryPicker({ id: 'agenda-backup', mode: 'readwrite' })
+    await backupStore('readwrite', (store) => store.put(folder, 'folder'))
+    await runDailyBackup({ force: true })
+  } catch (error) {
+    if (error?.name !== 'AbortError') showToast('Não foi possível usar essa pasta para o backup.')
+  }
+}
+
+async function runDailyBackup({ force = false } = {}) {
+  if (!('showDirectoryPicker' in window) || !state.user) return
+  const folder = await backupStore('readonly', (store) => store.get('folder')).catch(() => null)
+  updateBackupButton(folder?.name)
+  if (!folder) return
+
+  const today = localDateString()
+  if (!force && localStorage.getItem(BACKUP_KEY) === today) return
+
+  // O navegador só libera a pasta depois de um clique; tenta de novo no próximo.
+  if (await folder.queryPermission({ mode: 'readwrite' }) !== 'granted') {
+    if (!navigator.userActivation?.isActive || await folder.requestPermission({ mode: 'readwrite' }) !== 'granted') {
+      document.addEventListener('pointerdown', () => void runDailyBackup({ force }), { once: true })
+      return
+    }
+  }
+
+  try {
+    const file = await folder.getFileHandle(`agenda-${today}.json`, { create: true })
+    const writable = await file.createWritable()
+    await writable.write(JSON.stringify({ exportedAt: new Date().toISOString(), tasks: state.tasks }, null, 2))
+    await writable.close()
+
+    const backups = []
+    for await (const entry of folder.values()) {
+      if (entry.kind === 'file' && /^agenda-\d{4}-\d{2}-\d{2}\.json$/.test(entry.name)) backups.push(entry.name)
+    }
+    backups.sort().slice(0, -BACKUP_KEEP).forEach((name) => folder.removeEntry(name).catch(() => {}))
+
+    localStorage.setItem(BACKUP_KEY, today)
+    updateBackupButton(folder.name)
+    if (force) showToast('Backup salvo na pasta escolhida.')
+  } catch {
+    showToast('Não foi possível salvar o backup de hoje.')
+  }
 }
 
 document.querySelectorAll('[data-view]').forEach((button) => {
@@ -612,8 +893,24 @@ document.addEventListener('keydown', (event) => {
   }
 })
 
+elements.authForm.addEventListener('submit', signIn)
+elements.signOut.addEventListener('click', signOut)
+elements.backupButton.hidden = !('showDirectoryPicker' in window)
+elements.backupButton.addEventListener('click', chooseBackupFolder)
+window.addEventListener('online', () => void pullTasks())
+db.auth.onAuthStateChange((event) => {
+  if (event === 'SIGNED_OUT' && state.user) showSignedOut()
+})
+
 render()
+db.auth.getSession().then(({ data }) => {
+  if (data.session) void showSignedIn(data.session.user)
+  else showSignedOut()
+})
 window.setInterval(checkMedicationReminders, 15000)
+window.setInterval(() => void pullTasks(), 60000)
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) checkMedicationReminders()
+  if (document.hidden) return
+  checkMedicationReminders()
+  void pullTasks()
 })
