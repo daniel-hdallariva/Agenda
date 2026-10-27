@@ -404,3 +404,8 @@ button:focus-visible, input:focus-visible { outline-color: rgba(96, 165, 250, .5
   .sidebar { border-color: #302d37; background: rgba(25, 23, 30, .97); }
   .nav-count { border-color: #19171e; }
 }
+
+/* O iPhone dá zoom ao tocar em campos com letra menor que 16px; em telas de toque os campos usam 16px. */
+@media (hover: none) and (pointer: coarse) {
+  input, select, textarea { font-size: 16px !important; }
+}
