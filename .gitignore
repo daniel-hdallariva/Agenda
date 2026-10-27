@@ -1,0 +1,18 @@
+# Chaves e segredos nunca vão para o GitHub
+.env
+.env.*
+*.key
+*.pem
+supabase/.temp/
+supabase/.branches/
+
+# Backups locais das tarefas ficam só no PC
+backups/
+
+# Configurações locais do Claude Code
+.claude/
+
+node_modules/
+.DS_Store
+Thumbs.db
+desktop.ini

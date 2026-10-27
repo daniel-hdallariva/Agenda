@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#15131a" />
+    <meta name="description" content="Uma agenda pessoal, simples e privada." />
+    <title>Agenda pessoal</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Navegação principal">
+        <a class="brand" href="#hoje" aria-label="Tarefa, ir para Hoje">
+          <span class="brand-name">Tarefa</span>
+        </a>
+
+        <div class="sidebar-section-label">SUA AGENDA</div>
+        <nav class="primary-nav" aria-label="Listas de tarefas">
+          <button class="nav-item is-active" type="button" data-view="today" aria-current="page">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"></rect><path d="M7.5 3.5v3M16.5 3.5v3M3.5 9.5h17M8 13h3M8 16h7"></path></svg>
+            <span>Hoje</span>
+            <span class="nav-count" id="today-count">0</span>
+          </button>
+          <button class="nav-item" type="button" data-view="upcoming">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18.5h16M5.5 15l4-4 3 2.5 5.5-6"></path><path d="M14.5 7.5H18v3.5"></path></svg>
+            <span>Próximas</span>
+          </button>
+          <button class="nav-item" type="button" data-view="all">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12"></path><circle cx="4" cy="6" r=".8"></circle><circle cx="4" cy="12" r=".8"></circle><circle cx="4" cy="18" r=".8"></circle></svg>
+            <span>Todas</span>
+          </button>
+          <button class="nav-item" type="button" data-view="completed">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="m8.5 12 2.2 2.2 4.8-5"></path></svg>
+            <span>Concluídas</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-bottom">
+          <div class="privacy-note">
+            <span class="privacy-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v2"></path></svg>
+            </span>
+            <span>Seus dados ficam<br />neste dispositivo.</span>
+          </div>
+          <div class="sidebar-signature">UM PASSO DE CADA VEZ</div>
+        </div>
+      </aside>
+
+      <main class="main-panel">
+        <header class="topbar">
+          <div class="breadcrumb"><span>Meu espaço</span><span class="breadcrumb-divider">/</span><span id="breadcrumb-view">Hoje</span></div>
+          <div class="topbar-date" id="topbar-date"></div>
+        </header>
+
+        <div class="content-wrap">
+          <section class="page-heading" aria-labelledby="page-title">
+            <div class="heading-copy">
+              <p class="eyebrow" id="heading-eyebrow">QUINTA-FEIRA, 1 DE OUTUBRO</p>
+              <h1 id="page-title">Hoje</h1>
+              <p class="heading-subtitle" id="heading-subtitle">Um passo de cada vez. O que merece sua atenção?</p>
+            </div>
+            <div class="day-progress" aria-label="Progresso das tarefas de hoje">
+              <div class="progress-ring" id="progress-ring" style="--progress: 0deg">
+                <span id="progress-value">0%</span>
+              </div>
+              <div class="progress-copy"><strong id="progress-label">Comece por aqui</strong><span id="progress-detail">Nenhuma tarefa para hoje</span></div>
+            </div>
+          </section>
+
+          <section class="task-workspace" aria-label="Suas tarefas">
+            <div class="list-toolbar">
+              <div class="list-heading">
+                <h2 id="list-title">Sua lista</h2>
+                <span class="task-total" id="visible-count">0</span>
+              </div>
+              <label class="search-box">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.5 4.5"></path></svg>
+                <input id="search-input" type="search" placeholder="Buscar tarefa" autocomplete="off" aria-label="Buscar tarefas" />
+                <kbd>/</kbd>
+              </label>
+            </div>
+
+            <form class="quick-add" id="quick-add-form">
+              <span class="add-symbol" aria-hidden="true">+</span>
+              <input id="task-title" name="title" type="text" maxlength="120" placeholder="Adicionar uma tarefa..." autocomplete="off" required aria-label="Título da tarefa" />
+              <label class="date-picker" for="task-date" title="Adicionar uma data">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5.5" width="16" height="15" rx="2"></rect><path d="M8 3.5v4M16 3.5v4M4 10h16"></path></svg>
+                <span id="date-label">Data</span>
+                <input id="task-date" name="dueDate" type="date" aria-label="Data da tarefa" />
+              </label>
+              <label class="repeat-toggle"><input id="task-repeat" type="checkbox" /> <span>Repetir semanalmente</span></label>
+              <div class="repeat-options" id="repeat-options" hidden>
+                <fieldset class="weekday-picker" id="task-weekdays">
+                  <legend>Dias</legend>
+                  <label><input type="checkbox" value="1" /><span>Seg</span></label>
+                  <label><input type="checkbox" value="2" /><span>Ter</span></label>
+                  <label><input type="checkbox" value="3" /><span>Qua</span></label>
+                  <label><input type="checkbox" value="4" /><span>Qui</span></label>
+                  <label><input type="checkbox" value="5" /><span>Sex</span></label>
+                  <label><input type="checkbox" value="6" /><span>Sáb</span></label>
+                  <label><input type="checkbox" value="0" /><span>Dom</span></label>
+                </fieldset>
+                <label class="time-picker" for="task-time">Horário<input id="task-time" type="time" value="08:00" /></label>
+              </div>
+              <button class="add-button" type="submit" aria-label="Adicionar tarefa" title="Adicionar tarefa">↵</button>
+            </form>
+
+            <div class="task-list" id="task-list" aria-live="polite"></div>
+            <div class="empty-state" id="empty-state" hidden>
+              <div class="empty-art" aria-hidden="true"><span class="empty-sun"></span><span class="empty-line empty-line-one"></span><span class="empty-line empty-line-two"></span><span class="empty-check">✓</span></div>
+              <h3 id="empty-title">Tudo começa com uma tarefa.</h3>
+              <p id="empty-description">Anote o que está na sua cabeça e deixe o resto para depois.</p>
+              <button class="empty-action" type="button" id="empty-action">+ <span>Adicionar primeira tarefa</span></button>
+            </div>
+
+            <div class="list-footer" id="list-footer">
+              <span><span class="footer-dot"></span><span id="footer-status">Tudo salvo neste dispositivo</span></span>
+              <button class="clear-completed" type="button" id="clear-completed" hidden>Limpar concluídas</button>
+            </div>
+          </section>
+
+          <footer class="page-footer"><span>FEITO COM CALMA</span><span id="footer-date"></span></footer>
+        </div>
+      </main>
+    </div>
+
+    <dialog class="edit-dialog" id="edit-dialog" aria-labelledby="edit-title">
+      <form id="edit-form" method="dialog">
+        <div class="dialog-topline"><span>EDITAR TAREFA</span><button class="icon-button dialog-close" type="button" aria-label="Fechar">×</button></div>
+        <h2 id="edit-title">Ajuste os detalhes</h2>
+        <label class="field-label" for="edit-task-title">Tarefa</label>
+        <input class="dialog-input" id="edit-task-title" name="title" type="text" maxlength="120" required />
+        <div id="edit-date-field">
+          <label class="field-label" for="edit-task-date">Data <span>(opcional)</span></label>
+          <input class="dialog-input date-input" id="edit-task-date" name="dueDate" type="date" />
+        </div>
+        <label class="repeat-toggle edit-repeat-toggle"><input id="edit-task-repeat" type="checkbox" /> <span>Repetir semanalmente</span></label>
+        <fieldset class="weekday-picker edit-weekdays" id="edit-task-weekdays" hidden>
+          <legend>Dias</legend>
+          <label><input type="checkbox" value="1" /><span>Seg</span></label>
+          <label><input type="checkbox" value="2" /><span>Ter</span></label>
+          <label><input type="checkbox" value="3" /><span>Qua</span></label>
+          <label><input type="checkbox" value="4" /><span>Qui</span></label>
+          <label><input type="checkbox" value="5" /><span>Sex</span></label>
+          <label><input type="checkbox" value="6" /><span>Sáb</span></label>
+          <label><input type="checkbox" value="0" /><span>Dom</span></label>
+        </fieldset>
+        <label class="field-label edit-time-label" id="edit-time-field" for="edit-task-time" hidden>Horário</label>
+        <input class="dialog-input date-input" id="edit-task-time" type="time" value="08:00" hidden />
+        <div class="dialog-actions"><button class="text-button" type="button" id="delete-task">Excluir tarefa</button><button class="save-button" type="submit">Salvar alterações <span aria-hidden="true">→</span></button></div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>
