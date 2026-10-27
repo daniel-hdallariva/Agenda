@@ -768,8 +768,13 @@ async function enableReminders() {
   unlockReminderSound()
   try {
     const permission = await Notification.requestPermission()
+    if (permission === 'denied') {
+      showToast('Os avisos estão bloqueados. Libere as notificações da agenda nos ajustes do navegador ou do aparelho.')
+      return
+    }
     if (permission !== 'granted') {
-      showToast('Os avisos foram bloqueados. Libere as notificações da agenda nos ajustes do aparelho.')
+      // Na janela de app do Edge o pedido de permissão às vezes nem aparece.
+      showToast('O navegador não mostrou o pedido de permissão. Libere as notificações deste site nos ajustes do navegador.')
       return
     }
     const registration = await navigator.serviceWorker.ready
