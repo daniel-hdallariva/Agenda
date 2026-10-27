@@ -90,6 +90,40 @@ Deno.serve(async (request) => {
     auth: { persistSession: false },
   })
 
+  // Diagnóstico (só com a senha): mostra o estado sem expor o texto das tarefas.
+  const params = new URL(request.url).searchParams
+  if (params.has('diagnostico') || params.has('teste')) {
+    const { data: withTime } = await db.from('tasks').select('id, weekdays, month_day, due_date, reminder_time, completed, completed_dates').not('reminder_time', 'is', null)
+    const { data: subscriptions } = await db.from('push_subscriptions').select('*')
+    const { data: recentSent } = await db.from('sent_reminders').select('*').order('sent_at', { ascending: false }).limit(10)
+    const results: string[] = []
+    if (params.has('teste')) {
+      const payload = JSON.stringify({ title: 'Teste da agenda', body: 'Se você está vendo isto, os avisos chegam neste aparelho.', tag: 'teste' })
+      for (const subscription of subscriptions ?? []) {
+        const host = new URL(subscription.endpoint).host
+        try {
+          const response = await webpush.sendNotification(
+            { endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } },
+            payload,
+            { TTL: 600, urgency: 'high' },
+          )
+          results.push(`${host}: ok ${response.statusCode}`)
+        } catch (pushError) {
+          const { statusCode, body } = pushError as { statusCode?: number; body?: string }
+          results.push(`${host}: erro ${statusCode ?? ''} ${body ?? (pushError as Error).message}`)
+        }
+      }
+    }
+    return Response.json({
+      now: new Date().toISOString(),
+      localToday: localDate(new Date()),
+      tasksWithTime: (withTime ?? []).map(({ id, ...rest }) => ({ id: id.slice(0, 8), ...rest })),
+      subscriptions: (subscriptions ?? []).map((item) => ({ host: new URL(item.endpoint).host, device: item.device?.slice(0, 70), created_at: item.created_at })),
+      recentSent,
+      results,
+    })
+  }
+
   const { data: tasks, error } = await db
     .from('tasks')
     .select('id, user_id, title, due_date, weekdays, month_day, reminder_time, completed, completed_dates')
