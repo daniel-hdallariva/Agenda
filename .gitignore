@@ -3,6 +3,7 @@
 .env.*
 *.key
 *.pem
+*.local.sql
 supabase/.temp/
 supabase/.branches/
 
@@ -10,8 +11,9 @@ supabase/.branches/
 backups/
 agenda-*.json
 
-# Configurações locais do Claude Code
+# Configurações locais do Claude Code e do VS Code
 .claude/
+.vscode/
 
 node_modules/
 .DS_Store

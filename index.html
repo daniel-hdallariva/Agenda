@@ -61,7 +61,8 @@
           <div class="breadcrumb"><span>Meu espaço</span><span class="breadcrumb-divider">/</span><span id="breadcrumb-view">Hoje</span></div>
           <div class="topbar-right">
             <div class="topbar-date" id="topbar-date"></div>
-            <button class="sign-out" type="button" id="sign-out" hidden>Sair</button>
+            <button class="topbar-button is-accent" type="button" id="enable-reminders" hidden>Ativar avisos</button>
+            <button class="topbar-button" type="button" id="sign-out" hidden>Sair</button>
           </div>
         </header>
 
@@ -101,9 +102,17 @@
                 <span id="date-label">Data</span>
                 <input id="task-date" name="dueDate" type="date" aria-label="Data da tarefa" />
               </label>
-              <label class="repeat-toggle"><input id="task-repeat" type="checkbox" /> <span>Repetir semanalmente</span></label>
+              <label class="time-picker" for="task-time" title="Com horário, você recebe aviso">Horário<input id="task-time" type="time" /></label>
+              <label class="time-picker" for="task-repeat">Repetir
+                <select id="task-repeat">
+                  <option value="none">Não repete</option>
+                  <option value="daily">Todo dia</option>
+                  <option value="weekly">Dias da semana</option>
+                  <option value="monthly">Todo mês</option>
+                </select>
+              </label>
               <div class="repeat-options" id="repeat-options" hidden>
-                <fieldset class="weekday-picker" id="task-weekdays">
+                <fieldset class="weekday-picker" id="task-weekdays" hidden>
                   <legend>Dias</legend>
                   <label><input type="checkbox" value="1" /><span>Seg</span></label>
                   <label><input type="checkbox" value="2" /><span>Ter</span></label>
@@ -113,7 +122,7 @@
                   <label><input type="checkbox" value="6" /><span>Sáb</span></label>
                   <label><input type="checkbox" value="0" /><span>Dom</span></label>
                 </fieldset>
-                <label class="time-picker" for="task-time">Horário<input id="task-time" type="time" value="08:00" /></label>
+                <label class="time-picker" id="task-month-day-field" for="task-month-day" hidden>Dia do mês<input id="task-month-day" type="number" min="1" max="31" /></label>
               </div>
               <button class="add-button" type="submit" aria-label="Adicionar tarefa" title="Adicionar tarefa">↵</button>
             </form>
@@ -147,7 +156,15 @@
           <label class="field-label" for="edit-task-date">Data <span>(opcional)</span></label>
           <input class="dialog-input date-input" id="edit-task-date" name="dueDate" type="date" />
         </div>
-        <label class="repeat-toggle edit-repeat-toggle"><input id="edit-task-repeat" type="checkbox" /> <span>Repetir semanalmente</span></label>
+        <label class="field-label" for="edit-task-time">Horário <span>(com horário, você recebe aviso)</span></label>
+        <input class="dialog-input date-input" id="edit-task-time" type="time" />
+        <label class="field-label" for="edit-task-repeat">Repetir</label>
+        <select class="dialog-input" id="edit-task-repeat">
+          <option value="none">Não repete</option>
+          <option value="daily">Todo dia</option>
+          <option value="weekly">Dias da semana</option>
+          <option value="monthly">Todo mês</option>
+        </select>
         <fieldset class="weekday-picker edit-weekdays" id="edit-task-weekdays" hidden>
           <legend>Dias</legend>
           <label><input type="checkbox" value="1" /><span>Seg</span></label>
@@ -158,8 +175,10 @@
           <label><input type="checkbox" value="6" /><span>Sáb</span></label>
           <label><input type="checkbox" value="0" /><span>Dom</span></label>
         </fieldset>
-        <label class="field-label edit-time-label" id="edit-time-field" for="edit-task-time" hidden>Horário</label>
-        <input class="dialog-input date-input" id="edit-task-time" type="time" value="08:00" hidden />
+        <div id="edit-month-day-field" hidden>
+          <label class="field-label" for="edit-task-month-day">Dia do mês</label>
+          <input class="dialog-input" id="edit-task-month-day" type="number" min="1" max="31" />
+        </div>
         <div class="dialog-actions"><button class="text-button" type="button" id="delete-task">Excluir tarefa</button><button class="save-button" type="submit">Salvar alterações <span aria-hidden="true">→</span></button></div>
       </form>
     </dialog>

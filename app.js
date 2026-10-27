@@ -8,6 +8,8 @@ const BACKUP_KEEP = 30
 const SUPABASE_URL = 'https://vlsktymnxefpzvmofyvl.supabase.co'
 const SUPABASE_KEY = 'sb_publishable_sT1FD9V97a5fHczPxLZnwg_cjM6oeZO'
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
+// Chave pública dos avisos; a parte privada fica só no Supabase.
+const VAPID_PUBLIC_KEY = 'BCj48L-Fjn5955goB936JOTuLfUtkVzzCEyz_dpX__WVdjSI-XcxXC6fLQrwEBWJ1c6AkM1XletlpvnHk-cHGgM'
 
 const viewLabels = {
   today: 'Hoje',
@@ -47,6 +49,8 @@ const elements = {
   taskRepeat: document.querySelector('#task-repeat'),
   repeatOptions: document.querySelector('#repeat-options'),
   taskWeekdays: document.querySelector('#task-weekdays'),
+  taskMonthDayField: document.querySelector('#task-month-day-field'),
+  taskMonthDay: document.querySelector('#task-month-day'),
   taskTime: document.querySelector('#task-time'),
   taskList: document.querySelector('#task-list'),
   emptyState: document.querySelector('#empty-state'),
@@ -67,7 +71,8 @@ const elements = {
   editDateField: document.querySelector('#edit-date-field'),
   editRepeat: document.querySelector('#edit-task-repeat'),
   editWeekdays: document.querySelector('#edit-task-weekdays'),
-  editTimeField: document.querySelector('#edit-time-field'),
+  editMonthDayField: document.querySelector('#edit-month-day-field'),
+  editMonthDay: document.querySelector('#edit-task-month-day'),
   editTime: document.querySelector('#edit-task-time'),
   deleteTask: document.querySelector('#delete-task'),
   closeDialog: document.querySelector('.dialog-close'),
@@ -79,6 +84,7 @@ const elements = {
   authError: document.querySelector('#auth-error'),
   authSubmit: document.querySelector('#auth-submit'),
   signOut: document.querySelector('#sign-out'),
+  enableReminders: document.querySelector('#enable-reminders'),
   backupButton: document.querySelector('#backup-button'),
 }
 
@@ -104,14 +110,18 @@ function isTaskLike(task) {
 }
 
 function normalizeTask(task) {
+  const weekdays = Array.isArray(task.weekdays)
+    ? [...new Set(task.weekdays.filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))]
+    : []
+  const monthDay = !weekdays.length && isValidMonthDay(task.monthDay) ? task.monthDay : null
   return {
     id: task.id,
     title: task.title.slice(0, 120),
     dueDate: isValidDate(task.dueDate) ? task.dueDate : '',
-    weekdays: Array.isArray(task.weekdays)
-      ? [...new Set(task.weekdays.filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))]
-      : [],
-    time: isValidTime(task.time) ? task.time : '08:00',
+    weekdays,
+    monthDay,
+    // Tarefa que repete sempre tem horário; tarefa de data única só tem aviso se tiver horário.
+    time: isValidTime(task.time) ? task.time : (weekdays.length || monthDay ? '08:00' : ''),
     completedDates: Array.isArray(task.completedDates) ? task.completedDates.filter(isValidDate) : [],
     notifiedDates: Array.isArray(task.notifiedDates) ? task.notifiedDates.filter(isValidDate) : [],
     completed: Boolean(task.completed),
@@ -125,7 +135,8 @@ function taskToRow(task) {
     title: task.title,
     due_date: task.dueDate || null,
     weekdays: task.weekdays,
-    reminder_time: isValidTime(task.time) ? task.time : '08:00',
+    month_day: task.monthDay,
+    reminder_time: isValidTime(task.time) ? task.time : null,
     completed: task.completed,
     completed_dates: task.completedDates,
     notified_dates: task.notifiedDates,
@@ -139,7 +150,8 @@ function rowToTask(row) {
     title: row.title,
     dueDate: row.due_date ?? '',
     weekdays: row.weekdays,
-    time: row.reminder_time,
+    monthDay: row.month_day,
+    time: row.reminder_time ?? '',
     completed: row.completed,
     completedDates: row.completed_dates,
     notifiedDates: row.notified_dates,
@@ -177,6 +189,10 @@ function isValidDate(value) {
 
 function isValidTime(value) {
   return typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value)
+}
+
+function isValidMonthDay(value) {
+  return Number.isInteger(value) && value >= 1 && value <= 31
 }
 
 function saveTasks() {
@@ -298,21 +314,28 @@ function renderDate() {
   elements.headingEyebrow.textContent = `${weekday}, ${date}`.toLocaleUpperCase('pt-BR')
 }
 
-function getTodayTasks() {
-  const today = localDateString()
-  const weekday = parseLocalDate(today).getDay()
-  return state.tasks.filter((task) => {
-    if (task.weekdays.length) return task.weekdays.includes(weekday) && !task.completedDates.includes(today)
-    return !task.completed && task.dueDate === today
-  })
+function isRecurring(task) {
+  return task.weekdays.length > 0 || Boolean(task.monthDay)
+}
+
+// Dia do mês 31 cai no último dia em meses mais curtos.
+function occursOn(task, dateString) {
+  const date = parseLocalDate(dateString)
+  if (task.weekdays.length) return task.weekdays.includes(date.getDay())
+  if (task.monthDay) {
+    const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
+    return date.getDate() === Math.min(task.monthDay, lastDay)
+  }
+  return task.dueDate === dateString
+}
+
+function isDoneOn(task, dateString) {
+  return isRecurring(task) ? task.completedDates.includes(dateString) : task.completed
 }
 
 function getScheduledTasksForToday() {
   const today = localDateString()
-  const weekday = parseLocalDate(today).getDay()
-  return state.tasks.filter((task) => (
-    task.weekdays.length ? task.weekdays.includes(weekday) : task.dueDate === today
-  ))
+  return state.tasks.filter((task) => occursOn(task, today))
 }
 
 function getVisibleTasks() {
@@ -320,17 +343,14 @@ function getVisibleTasks() {
   let tasks = state.tasks
 
   if (state.view === 'today') {
-    const weekday = parseLocalDate(today).getDay()
     tasks = tasks.filter((task) => {
-      if (task.weekdays.length) return task.weekdays.includes(weekday) && !task.completedDates.includes(today)
+      if (isRecurring(task)) return occursOn(task, today) && !task.completedDates.includes(today)
       return !task.completed && task.dueDate && task.dueDate <= today
     })
   } else if (state.view === 'upcoming') {
-    tasks = tasks.filter((task) => task.weekdays.length || (!task.completed && task.dueDate > today))
+    tasks = tasks.filter((task) => isRecurring(task) || (!task.completed && task.dueDate > today))
   } else if (state.view === 'completed') {
-    tasks = tasks.filter((task) => task.weekdays.length
-      ? task.completedDates.includes(today)
-      : task.completed)
+    tasks = tasks.filter((task) => isDoneOn(task, today))
   }
 
   if (state.search) {
@@ -339,11 +359,11 @@ function getVisibleTasks() {
   }
 
   return [...tasks].sort((a, b) => {
-    if (a.weekdays.length && b.weekdays.length) return a.time.localeCompare(b.time) || a.createdAt - b.createdAt
-    if (a.weekdays.length) return 1
-    if (b.weekdays.length) return -1
+    if (isRecurring(a) && isRecurring(b)) return a.time.localeCompare(b.time) || a.createdAt - b.createdAt
+    if (isRecurring(a)) return 1
+    if (isRecurring(b)) return -1
     if (a.completed !== b.completed && state.view === 'all') return Number(a.completed) - Number(b.completed)
-    if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate) || a.createdAt - b.createdAt
+    if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate) || a.time.localeCompare(b.time) || a.createdAt - b.createdAt
     if (a.dueDate) return -1
     if (b.dueDate) return 1
     return a.createdAt - b.createdAt
@@ -375,9 +395,7 @@ function updateHeading() {
 function updateProgress() {
   const todayTasks = getScheduledTasksForToday()
   const today = localDateString()
-  const completed = todayTasks.filter((task) => (
-    task.weekdays.length ? task.completedDates.includes(today) : task.completed
-  )).length
+  const completed = todayTasks.filter((task) => isDoneOn(task, today)).length
   const total = todayTasks.length
   const percentage = total === 0 ? 0 : Math.round((completed / total) * 100)
   elements.progressRing.style.setProperty('--progress', `${percentage * 3.6}deg`)
@@ -420,9 +438,9 @@ function createIconButton(label, icon, className = '') {
 
 function createTaskRow(task, index) {
   const row = document.createElement('article')
-  const isRecurring = task.weekdays.length > 0
+  const recurring = isRecurring(task)
   const today = localDateString()
-  const isComplete = isRecurring ? task.completedDates.includes(today) : task.completed
+  const isComplete = isDoneOn(task, today)
   row.className = `task-row${isComplete ? ' is-complete' : ''}`
   row.style.animationDelay = `${Math.min(index * 25, 150)}ms`
 
@@ -431,7 +449,7 @@ function createTaskRow(task, index) {
   const checkbox = document.createElement('input')
   checkbox.type = 'checkbox'
   checkbox.checked = isComplete
-  checkbox.disabled = isRecurring && !task.weekdays.includes(parseLocalDate(today).getDay())
+  checkbox.disabled = recurring && !occursOn(task, today)
   checkbox.setAttribute('aria-label', checkbox.disabled
     ? `Não programado para hoje: ${task.title}`
     : (isComplete ? `Reabrir: ${task.title}` : `Concluir: ${task.title}`))
@@ -446,12 +464,12 @@ function createTaskRow(task, index) {
   title.textContent = task.title
   main.append(title)
 
-  if (isRecurring) {
+  if (recurring) {
     const schedule = document.createElement('span')
     schedule.className = 'task-date'
     schedule.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5.5" width="16" height="15" rx="2"></rect><path d="M8 3.5v4M16 3.5v4M4 10h16"></path></svg>'
     const scheduleText = document.createElement('span')
-    scheduleText.textContent = `${formatWeekdays(task.weekdays)} · ${task.time}`
+    scheduleText.textContent = `${describeRepeat(task)} · ${task.time}`
     schedule.append(scheduleText)
     main.append(schedule)
   } else if (task.dueDate) {
@@ -460,7 +478,8 @@ function createTaskRow(task, index) {
     date.className = `task-date${isOverdue ? ' is-overdue' : ''}`
     date.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5.5" width="16" height="15" rx="2"></rect><path d="M8 3.5v4M16 3.5v4M4 10h16"></path></svg>'
     const dateText = document.createElement('span')
-    dateText.textContent = isOverdue ? `Atrasada · ${formatTaskDate(task.dueDate)}` : formatTaskDate(task.dueDate)
+    const when = task.time ? `${formatTaskDate(task.dueDate)} · ${task.time}` : formatTaskDate(task.dueDate)
+    dateText.textContent = isOverdue ? `Atrasada · ${when}` : when
     date.append(dateText)
     main.append(date)
   }
@@ -505,9 +524,7 @@ function render() {
   elements.emptyDescription.textContent = emptyDescription
   elements.emptyAction.hidden = state.view === 'completed' || Boolean(state.search)
   const today = localDateString()
-  elements.clearCompleted.hidden = !state.tasks.some((task) => (
-    task.weekdays.length ? task.completedDates.includes(today) : task.completed
-  ))
+  elements.clearCompleted.hidden = !state.tasks.some((task) => isDoneOn(task, today))
 }
 
 function getSelectedWeekdays(container) {
@@ -521,20 +538,60 @@ function formatWeekdays(days) {
   return [...days].sort((a, b) => (a === 0 ? 7 : a) - (b === 0 ? 7 : b)).map((day) => labels[day]).join(', ')
 }
 
-function addTask(title, dueDate, weekdays = [], time = '') {
-  const trimmedTitle = title.trim()
-  if (!trimmedTitle) return false
-  if (elements.taskRepeat.checked && !weekdays.length) {
-    showToast('Escolha pelo menos um dia da semana.')
-    return false
+function describeRepeat(task) {
+  if (task.weekdays.length === 7) return 'Todo dia'
+  if (task.weekdays.length) return formatWeekdays(task.weekdays)
+  return `Todo dia ${task.monthDay}`
+}
+
+function repeatValueFor(task) {
+  if (task.weekdays.length === 7) return 'daily'
+  if (task.weekdays.length) return 'weekly'
+  if (task.monthDay) return 'monthly'
+  return 'none'
+}
+
+// Lê os campos de agenda (adicionar ou editar) e devolve null se faltar algo.
+function readSchedule({ repeat, weekdaysContainer, monthDayInput, date, time }) {
+  let weekdays = []
+  let monthDay = null
+  if (repeat === 'daily') weekdays = [1, 2, 3, 4, 5, 6, 0]
+  if (repeat === 'weekly') {
+    weekdays = getSelectedWeekdays(weekdaysContainer)
+    if (!weekdays.length) {
+      showToast('Escolha pelo menos um dia da semana.')
+      return null
+    }
   }
+  if (repeat === 'monthly') {
+    monthDay = Number(monthDayInput.value)
+    if (!isValidMonthDay(monthDay)) {
+      showToast('Escolha um dia do mês entre 1 e 31.')
+      return null
+    }
+  }
+
+  const recurring = weekdays.length > 0 || Boolean(monthDay)
+  const validTime = isValidTime(time) ? time : ''
+  let dueDate = !recurring && isValidDate(date) ? date : ''
+  // Horário sem data vale para hoje.
+  if (!recurring && validTime && !dueDate) dueDate = localDateString()
+  return { weekdays, monthDay, dueDate, time: validTime || (recurring ? '08:00' : '') }
+}
+
+function updateScheduleFields({ repeat, weekdaysContainer, monthDayField }) {
+  weekdaysContainer.hidden = repeat !== 'weekly'
+  monthDayField.hidden = repeat !== 'monthly'
+}
+
+function addTask(title, schedule) {
+  const trimmedTitle = title.trim()
+  if (!trimmedTitle || !schedule) return false
 
   const task = {
     id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     title: trimmedTitle.slice(0, 120),
-    dueDate: weekdays.length ? '' : (isValidDate(dueDate) ? dueDate : ''),
-    weekdays,
-    time: isValidTime(time) ? time : '08:00',
+    ...schedule,
     completedDates: [],
     notifiedDates: [],
     completed: false,
@@ -543,15 +600,14 @@ function addTask(title, dueDate, weekdays = [], time = '') {
   state.tasks.push(task)
   persist({ changed: [task.id] })
   render()
-  showToast(weekdays.length ? 'Lembrete semanal adicionado.' : 'Tarefa adicionada à sua lista.')
-  if (weekdays.length) prepareReminderAlerts()
+  showToast(isRecurring(task) ? 'Tarefa repetida adicionada.' : 'Tarefa adicionada à sua lista.')
   return true
 }
 
 function toggleTask(id) {
   const task = state.tasks.find((item) => item.id === id)
   if (!task) return
-  if (task.weekdays.length) {
+  if (isRecurring(task)) {
     const today = localDateString()
     if (task.completedDates.includes(today)) {
       task.completedDates = task.completedDates.filter((date) => date !== today)
@@ -578,11 +634,12 @@ function openEditDialog(task) {
   state.editingId = task.id
   elements.editTitle.value = task.title
   elements.editDate.value = task.dueDate
-  elements.editRepeat.checked = task.weekdays.length > 0
+  elements.editRepeat.value = repeatValueFor(task)
   elements.editWeekdays.querySelectorAll('input').forEach((input) => {
     input.checked = task.weekdays.includes(Number(input.value))
   })
-  elements.editTime.value = task.time || '08:00'
+  elements.editMonthDay.value = task.monthDay || parseLocalDate(task.dueDate || localDateString()).getDate()
+  elements.editTime.value = task.time
   updateEditScheduleFields()
   elements.editDialog.showModal()
   elements.editTitle.focus()
@@ -598,46 +655,39 @@ function saveEditedTask(event) {
   const task = state.tasks.find((item) => item.id === state.editingId)
   const title = elements.editTitle.value.trim()
   if (!task || !title) return
-  const weekdays = elements.editRepeat.checked ? getSelectedWeekdays(elements.editWeekdays) : []
-  if (elements.editRepeat.checked && !weekdays.length) {
-    showToast('Escolha pelo menos um dia da semana.')
-    return
-  }
+  const schedule = readSchedule({
+    repeat: elements.editRepeat.value,
+    weekdaysContainer: elements.editWeekdays,
+    monthDayInput: elements.editMonthDay,
+    date: elements.editDate.value,
+    time: elements.editTime.value,
+  })
+  if (!schedule) return
 
   task.title = title.slice(0, 120)
-  task.weekdays = weekdays
-  task.time = weekdays.length && isValidTime(elements.editTime.value) ? elements.editTime.value : ''
-  task.dueDate = weekdays.length ? '' : (isValidDate(elements.editDate.value) ? elements.editDate.value : '')
-  if (weekdays.length) task.completed = false
-  else {
-    task.completedDates = []
-    task.notifiedDates = []
-  }
+  Object.assign(task, schedule)
+  if (isRecurring(task)) task.completed = false
+  else task.completedDates = []
   persist({ changed: [task.id] })
   closeEditDialog()
   render()
-  showToast(weekdays.length ? 'Lembrete semanal atualizado.' : 'Alterações salvas.')
-  if (weekdays.length) prepareReminderAlerts()
+  showToast('Alterações salvas.')
 }
 
 function updateEditScheduleFields() {
-  const recurring = elements.editRepeat.checked
-  elements.editDateField.hidden = recurring
-  elements.editWeekdays.hidden = !recurring
-  elements.editTimeField.hidden = !recurring
-  elements.editTime.hidden = !recurring
+  const repeat = elements.editRepeat.value
+  elements.editDateField.hidden = repeat !== 'none'
+  updateScheduleFields({ repeat, weekdaysContainer: elements.editWeekdays, monthDayField: elements.editMonthDayField })
 }
 
 function clearCompletedTasks() {
   const today = localDateString()
-  const completedCount = state.tasks.filter((task) => (
-    task.weekdays.length ? task.completedDates.includes(today) : task.completed
-  )).length
+  const completedCount = state.tasks.filter((task) => isDoneOn(task, today)).length
   if (!completedCount) return
-  const removed = state.tasks.filter((task) => !task.weekdays.length && task.completed).map((task) => task.id)
-  const changed = state.tasks.filter((task) => task.weekdays.length && task.completedDates.includes(today)).map((task) => task.id)
+  const removed = state.tasks.filter((task) => !isRecurring(task) && task.completed).map((task) => task.id)
+  const changed = state.tasks.filter((task) => isRecurring(task) && task.completedDates.includes(today)).map((task) => task.id)
   state.tasks = state.tasks.filter((task) => {
-    if (!task.weekdays.length) return !task.completed
+    if (!isRecurring(task)) return !task.completed
     task.completedDates = task.completedDates.filter((date) => date !== today)
     return true
   })
@@ -654,20 +704,11 @@ function showToast(message) {
 }
 
 function unlockReminderSound() {
-  if (!state.tasks.some((task) => task.weekdays.length)) return
   const AudioContextType = window.AudioContext || window.webkitAudioContext
   if (AudioContextType) {
     if (!state.audioContext) state.audioContext = new AudioContextType()
     if (state.audioContext.state === 'suspended') void state.audioContext.resume()
   }
-}
-
-function prepareReminderAlerts() {
-  unlockReminderSound()
-  if ('Notification' in window && Notification.permission === 'default') {
-    void Notification.requestPermission().catch(() => {})
-  }
-  checkMedicationReminders()
 }
 
 function playReminderSound() {
@@ -689,30 +730,66 @@ function playReminderSound() {
   })
 }
 
-function checkMedicationReminders() {
-  const now = new Date()
-  const today = localDateString(now)
-  const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-  const weekday = now.getDay()
-  const changed = []
+// Avisos: o Supabase confere os horários a cada minuto e manda a notificação para cada aparelho ativado.
+function pushSupported() {
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window && location.protocol === 'https:'
+}
 
-  state.tasks.forEach((task) => {
-    if (!task.weekdays.length || !task.weekdays.includes(weekday)) return
-    if (task.time > currentTime || task.completedDates.includes(today) || task.notifiedDates.includes(today)) return
+function vapidKeyBytes() {
+  const base64 = (VAPID_PUBLIC_KEY + '='.repeat((4 - (VAPID_PUBLIC_KEY.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/')
+  return Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+}
 
-    task.notifiedDates.push(today)
-    changed.push(task.id)
-    playReminderSound()
-    showToast(`Hora do lembrete: ${task.title}`)
-    if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification('Lembrete de medicamento', {
-        body: `${task.title} · ${task.time}`,
-        tag: `medication-${task.id}-${today}`,
-      })
-    }
+async function saveSubscription(subscription) {
+  const { endpoint, keys } = subscription.toJSON()
+  const { error } = await db.from('push_subscriptions').upsert({
+    endpoint,
+    p256dh: keys.p256dh,
+    auth: keys.auth,
+    device: navigator.userAgent.slice(0, 200),
   })
+  if (error) throw error
+}
 
-  if (changed.length) persist({ changed })
+async function refreshReminderButton() {
+  elements.enableReminders.hidden = true
+  if (!pushSupported() || !state.user) return
+  const registration = await navigator.serviceWorker.ready
+  const subscription = await registration.pushManager.getSubscription()
+  if (subscription && Notification.permission === 'granted') {
+    // Reenvia a inscrição a cada abertura para o servidor nunca ficar com uma versão velha.
+    await saveSubscription(subscription).catch(() => {})
+    return
+  }
+  elements.enableReminders.hidden = false
+}
+
+async function enableReminders() {
+  unlockReminderSound()
+  try {
+    const permission = await Notification.requestPermission()
+    if (permission !== 'granted') {
+      showToast('Os avisos foram bloqueados. Libere as notificações da agenda nos ajustes do aparelho.')
+      return
+    }
+    const registration = await navigator.serviceWorker.ready
+    const subscription = await registration.pushManager.getSubscription()
+      ?? await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidKeyBytes() })
+    await saveSubscription(subscription)
+    elements.enableReminders.hidden = true
+    showToast('Avisos ativados neste aparelho.')
+  } catch {
+    showToast('Não foi possível ativar os avisos. Tente de novo com internet.')
+  }
+}
+
+async function removeThisDeviceSubscription() {
+  if (!pushSupported()) return
+  const registration = await navigator.serviceWorker.getRegistration()
+  const subscription = await registration?.pushManager.getSubscription()
+  if (!subscription) return
+  await db.from('push_subscriptions').delete().eq('endpoint', subscription.endpoint)
+  await subscription.unsubscribe()
 }
 
 async function showSignedIn(user) {
@@ -722,11 +799,13 @@ async function showSignedIn(user) {
   setSyncStatus('Sincronizando...')
   const pulled = await pullTasks()
   if (pulled) void runDailyBackup()
+  void refreshReminderButton()
 }
 
 function showSignedOut() {
   state.user = null
   elements.signOut.hidden = true
+  elements.enableReminders.hidden = true
   elements.authScreen.hidden = false
   elements.authEmail.focus()
 }
@@ -756,6 +835,8 @@ async function signOut() {
     showToast('Ainda há alterações sem enviar. Conecte-se à internet antes de sair.')
     return
   }
+  // Quem saiu da conta neste aparelho não deve mais receber avisos nele.
+  await removeThisDeviceSubscription().catch(() => {})
   await db.auth.signOut()
   state.tasks = []
   saveTasks()
@@ -845,21 +926,32 @@ document.querySelectorAll('[data-view]').forEach((button) => {
 
 elements.quickAddForm.addEventListener('submit', (event) => {
   event.preventDefault()
-  const weekdays = elements.taskRepeat.checked ? getSelectedWeekdays(elements.taskWeekdays) : []
-  const added = addTask(elements.taskTitle.value, elements.taskDate.value, weekdays, elements.taskTime.value)
+  if (!elements.taskTitle.value.trim()) return
+  const schedule = readSchedule({
+    repeat: elements.taskRepeat.value,
+    weekdaysContainer: elements.taskWeekdays,
+    monthDayInput: elements.taskMonthDay,
+    date: elements.taskDate.value,
+    time: elements.taskTime.value,
+  })
+  const added = addTask(elements.taskTitle.value, schedule)
   if (added) {
     elements.quickAddForm.reset()
     elements.dateLabel.textContent = 'Data'
-    elements.quickAddForm.classList.remove('is-recurring')
-    elements.repeatOptions.hidden = true
+    updateQuickAddScheduleFields()
     elements.taskTitle.focus()
   }
 })
 
-elements.taskRepeat.addEventListener('change', () => {
-  elements.quickAddForm.classList.toggle('is-recurring', elements.taskRepeat.checked)
-  elements.repeatOptions.hidden = !elements.taskRepeat.checked
-})
+function updateQuickAddScheduleFields() {
+  const repeat = elements.taskRepeat.value
+  elements.quickAddForm.classList.toggle('is-recurring', repeat !== 'none')
+  elements.repeatOptions.hidden = repeat !== 'weekly' && repeat !== 'monthly'
+  updateScheduleFields({ repeat, weekdaysContainer: elements.taskWeekdays, monthDayField: elements.taskMonthDayField })
+  if (repeat === 'monthly' && !elements.taskMonthDay.value) elements.taskMonthDay.value = new Date().getDate()
+}
+
+elements.taskRepeat.addEventListener('change', updateQuickAddScheduleFields)
 
 elements.taskDate.addEventListener('change', () => {
   elements.dateLabel.textContent = elements.taskDate.value ? formatTaskDate(elements.taskDate.value) : 'Data'
@@ -897,7 +989,19 @@ elements.authForm.addEventListener('submit', signIn)
 elements.signOut.addEventListener('click', signOut)
 elements.backupButton.hidden = !('showDirectoryPicker' in window)
 elements.backupButton.addEventListener('click', chooseBackupFolder)
+elements.enableReminders.addEventListener('click', enableReminders)
 window.addEventListener('online', () => void pullTasks())
+
+if (pushSupported()) {
+  void navigator.serviceWorker.register('sw.js')
+  // Com a agenda aberta, o aviso também aparece aqui dentro, com som.
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data?.type !== 'reminder') return
+    playReminderSound()
+    showToast(`${event.data.title} · ${event.data.body}`)
+    void pullTasks()
+  })
+}
 db.auth.onAuthStateChange((event) => {
   if (event === 'SIGNED_OUT' && state.user) showSignedOut()
 })
@@ -907,10 +1011,7 @@ db.auth.getSession().then(({ data }) => {
   if (data.session) void showSignedIn(data.session.user)
   else showSignedOut()
 })
-window.setInterval(checkMedicationReminders, 15000)
 window.setInterval(() => void pullTasks(), 60000)
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) return
-  checkMedicationReminders()
-  void pullTasks()
+  if (!document.hidden) void pullTasks()
 })

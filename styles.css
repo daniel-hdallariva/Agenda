@@ -237,8 +237,12 @@ h1 { margin-bottom: 8px; color: var(--ink); font-family: Georgia, "Times New Rom
 .toast.is-visible { opacity: 1; transform: translateY(0); }
 
 .topbar-right { display: flex; align-items: center; gap: 16px; }
-.sign-out { padding: 4px 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 11px; }
-.sign-out:hover { color: var(--ink); }
+.topbar-button { padding: 4px 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 11px; }
+.topbar-button:hover { color: var(--ink); }
+.topbar-button.is-accent { padding: 6px 10px; border-radius: 5px; background: var(--green); color: white; font-weight: 700; }
+.topbar-button.is-accent:hover { background: var(--green-dark); color: white; }
+.time-picker select { height: 29px; padding: 0 6px; border: 1px solid #e5e9df; border-radius: 5px; background: white; color: var(--ink); font: inherit; font-size: 10px; }
+.time-picker input[type="number"] { width: 58px; }
 .backup-button { width: 100%; margin-bottom: 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; font-size: 11px; line-height: 1.4; text-align: left; transition: border-color .18s, color .18s; }
 .backup-button:hover { border-color: var(--green); color: var(--ink); }
 
@@ -392,6 +396,8 @@ button:focus-visible, input:focus-visible { outline-color: rgba(96, 165, 250, .5
 .field-label span { color: #96909f; }
 .dialog-input { border-color: #45404d; background: #19171e; }
 .auth-error { color: #f08a9c; }
+.time-picker input, .time-picker select { border-color: #403b48; background: #19171e; color: var(--ink); }
+.time-picker { color: #aaa5b1; }
 .toast { border-color: #403b48; background: #26232c; box-shadow: 0 10px 30px rgba(0, 0, 0, .3); color: #e6e0ed; }
 
 @media (max-width: 650px) {
