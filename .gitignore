@@ -6,8 +6,9 @@
 supabase/.temp/
 supabase/.branches/
 
-# Backups locais das tarefas ficam só no PC
+# Backups locais das tarefas ficam só no PC, em qualquer pasta do projeto
 backups/
+agenda-*.json
 
 # Configurações locais do Claude Code
 .claude/
